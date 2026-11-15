@@ -8246,9 +8246,11 @@ function dtUpdateNav(){
   var cwl=document.getElementById('dt-cnt-wl');
   if(cw)cw.textContent=D.weapons.length;
   if(ca){
-    ca.textContent=D.ammo.length;
-    ca.className='dt-nav-cnt'+(low.length?' alert':'');
-    if(low.length)ca.textContent='! '+low.length;
+    // Total rounds on hand (low-stock warnings live on the Ammunition screen itself)
+    var rds=D.ammo.reduce(function(s,x){return s+(parseInt(x.qty)||0);},0);
+    ca.textContent=rds.toLocaleString();
+    ca.className='dt-nav-cnt';
+    ca.title=rds.toLocaleString()+' TOTAL ROUNDS';
   }
   if(cwl)cwl.textContent=D.wish.length;
   var rlCnt=0;if(D.rangeLogs)Object.values(D.rangeLogs).forEach(function(arr){rlCnt+=arr.length;});
