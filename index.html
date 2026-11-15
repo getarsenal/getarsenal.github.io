@@ -353,7 +353,6 @@ body{background:var(--bg);color:var(--t1);font-family:'Rajdhani',sans-serif;min-
     overflow-y:auto;flex:1;min-height:0;
   }
   /* Low-stock panel: keep compact so the list keeps its room */
-  #rod{max-height:30vh;overflow-y:auto;}
   #rod .rp{margin:10px 32px;}
   #rod .sls{flex-direction:row;flex-wrap:wrap;}
   #rod .sl{flex:1 1 180px;}
@@ -812,6 +811,18 @@ textarea.minp{resize:vertical;min-height:64px;}
 .ic{width:1em;height:1em;display:inline-block;vertical-align:-.125em;fill:currentColor;flex-shrink:0;overflow:visible}
 .dt-nav-ico,.dico,.nci,.eico,.acct-row-ico,.ad-export-ico,.photo-ico,.mode-ico,.feed-ico,.achieve-badge-icon,.tier-check,#celebration-emoji,.howto-sec-ico,.tut-ico{color:var(--ac)}
 .rank-icon .ic,#dt-rank-ico .ic,#ach-rank-icon .ic{filter:drop-shadow(0 0 4px currentColor)}
+
+/* ── DESKTOP SCROLL: the whole screen scrolls; header + filter bars stay pinned.
+   Inner lists no longer scroll on their own, so content above a list (charts,
+   alerts, stats) can never squeeze the list into a strip. Screens with their
+   own layout (detail tabs, chat, achievements) are excluded. ── */
+@media(min-width:768px){
+  .scr.on:not(#detscr):not(#wldetscr):not(#squadscr):not(#achscr){overflow-y:auto;overscroll-behavior:contain;}
+  .scr.on:not(#detscr):not(#wldetscr):not(#squadscr):not(#achscr)>*{flex-shrink:0;}
+  .scr.on:not(#detscr):not(#wldetscr):not(#squadscr):not(#achscr) :is(.lst,#ins-list,#adlist,#svc-all-list,#rl-global-list,#acclist,#maglist,#soldlist){overflow:visible!important;flex:none!important;height:auto!important;max-height:none!important;}
+  .scr.on .pin-bar{position:sticky;z-index:40;background:var(--bg);}
+  .scr.on .phd.pin-bar{z-index:50;background:var(--bg2);}
+}
 </style>
 </head>
 <body>
@@ -10579,6 +10590,33 @@ setTimeout(function(){
         else m.addedNodes.forEach(walk);
       });
     }).observe(document.body,{childList:true,subtree:true,characterData:true});
+  }
+  if(document.body)start();else document.addEventListener('DOMContentLoaded',start);
+})();
+</script>
+
+<script>
+/* Desktop: pin the header and the filter/sort bars directly under it. */
+(function(){
+  var BAR='.phd,.sbr,.srtb,#ins-filters,#drill-type-filter';
+  var SKIP={detscr:1,wldetscr:1,squadscr:1,achscr:1};
+  function pin(){
+    var s=document.querySelector('.scr.on');if(!s)return;
+    s.querySelectorAll('.pin-bar').forEach(function(e){e.classList.remove('pin-bar');e.style.top='';});
+    if(SKIP[s.id]||!window.matchMedia('(min-width:768px)').matches)return;
+    var top=0;
+    for(var i=0;i<s.children.length;i++){
+      var c=s.children[i];
+      if(!c.offsetHeight)continue;
+      if(!c.matches(BAR))break;
+      c.classList.add('pin-bar');c.style.top=top+'px';top+=c.offsetHeight;
+    }
+  }
+  window.arsenalPinBars=pin;
+  function start(){
+    var mo=new MutationObserver(function(){requestAnimationFrame(pin);});
+    document.querySelectorAll('.scr').forEach(function(s){mo.observe(s,{attributes:true,attributeFilter:['class']});});
+    window.addEventListener('resize',pin);pin();
   }
   if(document.body)start();else document.addEventListener('DOMContentLoaded',start);
 })();
