@@ -37,3 +37,7 @@ must land in both, in the same session.
   icons at render time, so legacy/remote data (leaderboard, feed) never shows
   phone emoji. If you introduce a new emoji anyway, add it to that map. Chat
   text, reactions and the emoji picker are deliberately excluded.
+
+## Menu order
+- Weapons and Ammunition are always the first two items in every menu (desktop
+  sidebar and phone drawer), directly under the pinned Home button.
