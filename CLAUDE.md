@@ -25,3 +25,15 @@ must land in both, in the same session.
   `document.getElementById('pin').classList.add('gone')`, then `go('<screenId>')`).
 - Docs-only commits to `arsenal-app` `main`: add `[skip ci]` to the commit
   message so they don't start an App Store build.
+
+## Icons — no phone emoji
+- UI icons come from **Game Icons** (game-icons.net, CC BY 3.0; credit line is
+  at the bottom of the How-To guide — keep it). They live in an inline SVG sprite
+  right after `<body>` as `<symbol id="i-NAME">`. Use them as
+  `<svg class="ic" aria-hidden="true"><use href="#i-NAME"></use></svg>`.
+- To add an icon: take its `body` from the `@iconify-json/game-icons` npm package
+  and add a `<symbol id="i-NAME" viewBox="0 0 512 512">` to the sprite in BOTH builds.
+- The "EMOJI → ICON HYDRATOR" script (end of `<body>`) converts known emoji to
+  icons at render time, so legacy/remote data (leaderboard, feed) never shows
+  phone emoji. If you introduce a new emoji anyway, add it to that map. Chat
+  text, reactions and the emoji picker are deliberately excluded.
