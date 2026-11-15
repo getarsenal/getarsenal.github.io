@@ -81,6 +81,10 @@ body{background:var(--bg);color:var(--t1);font-family:'Rajdhani',sans-serif;min-
 .chip{background:var(--bg3);border:1px solid var(--b1);border-radius:4px;padding:5px 9px;font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--t3);cursor:pointer;white-space:nowrap;flex-shrink:0}
 .chip.on{background:var(--ac3);border-color:var(--ac);color:var(--ac2)}
 .lst{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:9px;-webkit-overflow-scrolling:touch}
+.lst>*{flex-shrink:0}
+#rod{flex-shrink:0}
+.lst-sec{grid-column:1/-1;display:flex;align-items:baseline;justify-content:space-between;padding:10px 2px 4px;border-bottom:1px solid var(--b1);font-family:'Bebas Neue',cursive;font-size:16px;letter-spacing:3px;color:var(--ac)}
+.lst-sec span{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--t3)}
 .card{background:var(--bg2);border:1px solid var(--b1);border-radius:8px;overflow:hidden;cursor:pointer;position:relative}
 .card:active{background:var(--bg3)}
 .cbar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ac3)}
@@ -344,9 +348,15 @@ body{background:var(--bg);color:var(--t1);font-family:'Rajdhani',sans-serif;min-
     padding:16px 32px;
     display:grid!important;
     grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+    grid-auto-rows:max-content;
     gap:12px;align-content:start;
-    overflow-y:auto;flex:1;
+    overflow-y:auto;flex:1;min-height:0;
   }
+  /* Low-stock panel: keep compact so the list keeps its room */
+  #rod{max-height:30vh;overflow-y:auto;}
+  #rod .rp{margin:10px 32px;}
+  #rod .sls{flex-direction:row;flex-wrap:wrap;}
+  #rod .sl{flex:1 1 180px;}
 
   /* ── DETAIL SCREENS ── */
   #detscr.on,#wldetscr.on{
@@ -1246,7 +1256,7 @@ textarea.minp{resize:vertical;min-height:64px;}
 <div id="ascr" class="scr">
   <div class="phd"><button class="btnbk" id="aback">&#8249;</button><div style="flex:1"><div class="pht">AMMUNITION</div><div class="phs" id="asub">0 SKUs</div></div><button class="btnadd" id="aadd">+</button><button class="hbtn" id="hmenu-a">&#9776;</button></div>
   <div class="sbr"><div class="swp"><span class="sico">&#9906;</span><input class="sin" id="aq" placeholder="SEARCH CALIBER, BRAND, TYPE..."></div></div>
-  <div class="srtb" id="asrt"><button class="chip on" data-sort="date">RECENT</button><button class="chip" data-sort="caliber">CALIBER</button><button class="chip" data-sort="qty">QTY</button><button class="chip" data-sort="brand">BRAND</button><button class="chip" data-sort="low">&#9888; LOW</button><button class="chip" data-sort="group">&#9782; GROUP</button></div>
+  <div class="srtb" id="asrt"><button class="chip on" data-sort="date">RECENT</button><button class="chip" data-sort="type">TYPE</button><button class="chip" data-sort="caliber">CALIBER</button><button class="chip" data-sort="qty">QTY</button><button class="chip" data-sort="brand">BRAND</button><button class="chip" data-sort="low">&#9888; LOW</button><button class="chip" data-sort="group">&#9782; GROUP</button></div>
   <div id="rod"></div>
   <div class="lst" id="al"></div>
 </div>
@@ -2715,6 +2725,7 @@ function sortIt(items,key){
   if(key==='make')return a.sort(function(x,y){return(x.make||'').localeCompare(y.make||'');});
   if(key==='brand')return a.sort(function(x,y){return(x.brand||'').localeCompare(y.brand||'');});
   if(key==='caliber')return a.sort(function(x,y){return(x.caliber||'').localeCompare(y.caliber||'');});
+  if(key==='type')return a.sort(function(x,y){var tx=(x.bullet_type||'').toUpperCase(),ty=(y.bullet_type||'').toUpperCase();if(tx!==ty){if(!tx)return 1;if(!ty)return -1;return tx.localeCompare(ty);}return(x.caliber||'').localeCompare(y.caliber||'')||(parseInt(y.qty)||0)-(parseInt(x.qty)||0);});
   if(key==='qty')return a.sort(function(x,y){return(parseInt(y.qty)||0)-(parseInt(x.qty)||0);});
   if(key==='price')return a.sort(function(x,y){return(parseFloat(y.price)||0)-(parseFloat(x.price)||0);});
   if(key==='budget')return a.sort(function(x,y){return(parseFloat(y.budget)||0)-(parseFloat(x.budget)||0);});
@@ -2759,6 +2770,19 @@ function rl(type){
       else{items.forEach(function(it){html+=wlCard(it);});el.innerHTML=html;}
     } else {
       if(type==='weapons')items.forEach(function(it){html+=wCard(it);});
+      else if(type==='ammo'&&currentSort==='type'){
+        var lastT=null;
+        items.forEach(function(it,i){
+          var t=(it.bullet_type||'').toUpperCase()||'UNSPECIFIED';
+          if(t!==lastT){
+            var grp=items.filter(function(x){return((x.bullet_type||'').toUpperCase()||'UNSPECIFIED')===t;});
+            var rds=grp.reduce(function(s,x){return s+(parseInt(x.qty)||0);},0);
+            html+='<div class="lst-sec">'+esc(t)+'<span>'+grp.length+' SKU'+(grp.length!==1?'S':'')+' &middot; '+rds.toLocaleString()+' RDS</span></div>';
+            lastT=t;
+          }
+          html+=aCard(it);
+        });
+      }
       else if(type==='ammo')items.forEach(function(it){html+=aCard(it);});
       else items.forEach(function(it){html+=wlCard(it);});
       el.innerHTML=html;
