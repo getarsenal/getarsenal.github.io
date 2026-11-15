@@ -3241,9 +3241,11 @@ function runInsights(){
   }
 
   // Ammo with no weapon match
+  // Check against EVERY owned firearm — collector pieces are only excluded from
+  // the readiness score, they still shoot the ammo on file. Sold guns live elsewhere.
   var orphanAmmo=[];
   Object.keys(ammoCalibers).forEach(function(cal){
-    var found=Object.keys(weaponCalibers).some(function(wc){return wc.indexOf(cal)>=0||cal.indexOf(wc)>=0;});
+    var found=D.weapons.some(function(x){return x.caliber&&caliberCompatible(x.caliber,cal,x.altCalibers||'');});
     if(!found)orphanAmmo.push(cal);
   });
   if(orphanAmmo.length){
