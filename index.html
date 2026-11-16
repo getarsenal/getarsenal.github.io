@@ -2734,10 +2734,10 @@ function hstats(){
   document.getElementById('nw').textContent=D.weapons.length;
   document.getElementById('nwl').textContent=D.wish.length;
   var na=document.getElementById('na');
-  if(low.length){
-    na.className='nbdg';na.textContent='! '+low.length;
-    sndWarning();
-  } else {na.className='ncnt';na.textContent=D.ammo.length;}
+  // Badge = total rounds on hand; low stock is shown in the LOW STOCK tile above
+  var naRds=D.ammo.reduce(function(s,x){return s+(parseInt(x.qty)||0);},0);
+  na.className='ncnt';na.textContent=naRds.toLocaleString();
+  if(low.length)sndWarning();
   var now=new Date();
   var dateStr=now.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}).toUpperCase();
   var bkStr=D.lastBackup?'LAST BACKUP: '+new Date(D.lastBackup).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}).toUpperCase():'BACKUP: NEVER';
