@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" sizes="512x512" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <title>ARSENAL</title>
-<script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
+<script src="zxing.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -5389,9 +5389,17 @@ var _pendingScanUPC=null;
 
 function lookupUPC(upc){
   var clean=upc.replace(/\D/g,'');
+  // Try exact match first
   if(UPC_DB[clean])return Object.assign({},UPC_DB[clean]);
+  // Try stripping leading zero (EAN-13 readers return UPC-A with a leading 0)
+  var stripped=clean.replace(/^0+/,'');
+  if(UPC_DB[stripped])return Object.assign({},UPC_DB[stripped]);
+  // Try with leading zero added
+  if(UPC_DB['0'+clean])return Object.assign({},UPC_DB['0'+clean]);
   var saved=D.userUPCs||{};
   if(saved[clean])return Object.assign({},saved[clean]);
+  if(saved[stripped])return Object.assign({},saved[stripped]);
+  if(saved['0'+clean])return Object.assign({},saved['0'+clean]);
   return null;
 }
 
@@ -5409,73 +5417,156 @@ function openScanner(type){
   _scanType=type;
   _scanResult=null;
   resetResultBar();
-  document.getElementById('scan-modal').classList.add('open');
+  _arsenalCameraScan();
+}
+
+// ── CAMERA BARCODE SCANNER (shared by app + web) ─────────────
+// Used on the website and as the in-app fallback when no native scanner
+// plugin is present. Opens the BACK camera at high resolution with continuous
+// autofocus, then decodes frames with the native BarcodeDetector when the
+// browser has one, otherwise with ZXing (bundled locally as zxing.min.js).
+// Each tick alternates between a full-res crop of the aiming box and a
+// downscaled full frame, with TRY_HARDER on, which is what makes small UPCs on
+// ammo boxes readable. A TYPE UPC button is always available as a fallback.
+var _scanLoopOn=false,_scanTimer=null,_scanTick=0,_zxReader=null,_zxEan13=null,_zxHints=null,_bcDetector=null;
+var _SCAN_FORMATS=['ean_13','ean_8','upc_a','upc_e','code_128','code_39'];
+
+function _arsenalCameraScan(){
+  var modal=document.getElementById('scan-modal');
+  modal.classList.add('open');
   document.getElementById('scan-label').textContent='AIM CAMERA AT BARCODE';
-
-  if(typeof ZXing!=='undefined'){
-    try{
-      var hints=new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
-        ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39
-      ]);
-      _zxing=new ZXing.BrowserMultiFormatReader(hints);
-      _zxing.decodeFromVideoDevice(null,'scan-video',function(result,err){
-        if(result&&!_scanResult)onBarcodeDetected(result.getText());
-      });
-      return;
-    }catch(e){}
+  _ensureTypeButton();
+  var v=document.getElementById('scan-video');
+  if(v){v.style.display='';v.setAttribute('playsinline','');v.setAttribute('muted','');v.muted=true;}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    showManualEntry('CAMERA NOT AVAILABLE ON THIS DEVICE');return;
   }
-  // Fallback: raw camera + canvas
-  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}})
+  var constraints={audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}};
+  navigator.mediaDevices.getUserMedia(constraints)
+    .catch(function(){return navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'environment'}});})
     .then(function(stream){
+      if(!document.getElementById('scan-modal').classList.contains('open')||_scanResult){
+        stream.getTracks().forEach(function(t){t.stop();});return;
+      }
       _scanStream=stream;
-      var v=document.getElementById('scan-video');
-      v.srcObject=stream;v.play();
-      pollCanvas(v);
+      v.srcObject=stream;
+      try{
+        var track=stream.getVideoTracks()[0];
+        var caps=track.getCapabilities?track.getCapabilities():{};
+        if(caps.focusMode&&caps.focusMode.indexOf('continuous')>=0)track.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(function(){});
+      }catch(e){}
+      var p=v.play();
+      return (p&&p.then?p:Promise.resolve()).then(function(){_startDecodeLoop(v);});
     })
-    .catch(function(){showManualEntry();});
+    .catch(function(err){
+      console.warn('Camera err:',err);
+      var denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+      showManualEntry(denied?'CAMERA PERMISSION DENIED — ALLOW CAMERA ACCESS IN SETTINGS, OR TYPE THE UPC':'CAMERA UNAVAILABLE — TYPE THE UPC');
+    });
 }
 
-function pollCanvas(video){
-  if(typeof ZXing==='undefined'){showManualEntry();return;}
+function _ensureTypeButton(){
+  if(document.getElementById('scan-type-btn'))return;
+  var b=document.createElement('button');
+  b.id='scan-type-btn';b.className='scan-cancel';b.type='button';
+  b.style.left='auto';b.style.right='18px';
+  b.textContent='TYPE UPC';
+  b.addEventListener('click',function(){showManualEntry('TYPE THE NUMBERS UNDER THE BARCODE');});
+  document.getElementById('scan-modal').appendChild(b);
+}
+
+function _initDecoders(){
+  if(!_bcDetector&&'BarcodeDetector' in window){
+    try{_bcDetector=new window.BarcodeDetector({formats:_SCAN_FORMATS});}catch(e){_bcDetector=null;}
+  }
+  if(!_zxReader&&typeof ZXing!=='undefined'){
+    var hints=new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+      ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39
+    ]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+    _zxReader=new ZXing.MultiFormatReader();
+    _zxReader.setHints(hints);
+    // Bundled ZXing is 0.23.0: 0.18 had a guard-pattern bug that made any dark
+    // mark left of the barcode on a scan row (box art, text) fail the whole row.
+    // Try the dedicated EAN-13 reader first (fastest for ammo boxes; also covers
+    // UPC-A, returned with a leading 0 that lookupUPC strips), then all formats.
+    _zxEan13=ZXing.EAN13Reader?new ZXing.EAN13Reader():null;
+    _zxHints=hints;
+  }
+}
+
+function _startDecodeLoop(video){
+  _initDecoders();
+  if(!_bcDetector&&!_zxReader){showManualEntry('SCANNER FAILED TO LOAD — TYPE THE UPC');return;}
   var canvas=document.getElementById('scan-canvas');
-  var ctx=canvas.getContext('2d');
-  _scanInterval=setInterval(function(){
-    if(!video.videoWidth||_scanResult)return;
-    canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-    ctx.drawImage(video,0,0);
-    try{
-      var lum=new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-      var bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
-      var r=new ZXing.MultiFormatReader().decode(bmp);
-      if(r)onBarcodeDetected(r.getText());
-    }catch(e){}
-  },250);
+  var ctx=canvas.getContext('2d',{willReadFrequently:true});
+  _scanLoopOn=true;_scanTick=0;
+  function tick(){
+    if(!_scanLoopOn||_scanResult)return;
+    var vw=video.videoWidth,vh=video.videoHeight;
+    if(!vw||!vh){_scanTimer=setTimeout(tick,150);return;}
+    _scanTick++;
+    // Even ticks: native-res crop of the aiming box (centre 80% x 50%).
+    // Odd ticks: whole frame scaled to <=1280px wide.
+    var sx=0,sy=0,sw=vw,sh=vh,dw,dh;
+    if(_scanTick%2===0){sw=Math.round(vw*0.8);sh=Math.round(vh*0.5);sx=Math.round((vw-sw)/2);sy=Math.round((vh-sh)/2);dw=sw;dh=sh;}
+    else{var k=Math.min(1,1280/vw);dw=Math.round(vw*k);dh=Math.round(vh*k);}
+    canvas.width=dw;canvas.height=dh;
+    ctx.drawImage(video,sx,sy,sw,sh,0,0,dw,dh);
+    var done=function(txt){if(txt&&_scanLoopOn&&!_scanResult){_scanLoopOn=false;onBarcodeDetected(txt);}else next();};
+    var next=function(){if(_scanLoopOn&&!_scanResult)_scanTimer=setTimeout(tick,90);};
+    if(_bcDetector){
+      _bcDetector.detect(canvas).then(function(codes){
+        if(codes&&codes.length)done(codes[0].rawValue);else zx();
+      }).catch(function(){zx();});
+    } else zx();
+    function zx(){
+      if(!_zxReader){next();return;}
+      try{
+        var bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas)));
+        var r=null;
+        if(_zxEan13){try{r=_zxEan13.decode(bmp,_zxHints);}catch(e1){r=null;}}
+        if(!r){try{r=_zxReader.decodeWithState(bmp);}catch(e2){_zxReader.reset();r=null;}}
+        if(r)done(r.getText());else next();
+      }catch(e){next();}
+    }
+  }
+  tick();
 }
 
-function showManualEntry(){
+function _stopDecodeLoop(){
+  _scanLoopOn=false;
+  if(_scanTimer){clearTimeout(_scanTimer);_scanTimer=null;}
+}
+
+function showManualEntry(msg){
   document.getElementById('scan-label').textContent='ENTER UPC MANUALLY';
   var bar=document.getElementById('scan-result-bar');
   bar.innerHTML=
-    '<div class="scan-upc">CAMERA UNAVAILABLE — ENTER UPC MANUALLY</div>'+
-    '<input class="fi" id="manual-upc" placeholder="SCAN OR TYPE UPC NUMBER" style="margin-bottom:12px;">'+
+    '<div class="scan-upc">'+esc(msg||'TYPE THE UPC')+'</div>'+
+    '<input class="fi" id="manual-upc" inputmode="numeric" autocomplete="off" placeholder="UPC NUMBER (12-13 DIGITS)" style="margin-bottom:12px;">'+
     '<div class="scan-btns">'+
       '<button class="btnp" id="manual-submit" style="font-size:15px;letter-spacing:2px;">LOOK UP</button>'+
       '<button class="btnd" id="scan-cancel2" style="padding:14px 18px;font-size:15px;">CANCEL</button>'+
     '</div>';
   bar.style.display='block';
-  on('manual-submit','click',function(){
-    var v=document.getElementById('manual-upc');
-    if(v&&v.value.trim())onBarcodeDetected(v.value.trim());
-  });
-  on('scan-cancel2','click',closeScanner);
+  var inp=document.getElementById('manual-upc');
+  var submit=function(){var val=(inp.value||'').replace(/\D/g,'');if(val.length>=6)onBarcodeDetected(val);else inp.focus();};
+  document.getElementById('manual-submit').addEventListener('click',submit);
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter')submit();});
+  document.getElementById('scan-cancel2').addEventListener('click',closeScanner);
+  setTimeout(function(){try{inp.focus();}catch(e){}},50);
 }
 
 function onBarcodeDetected(upc){
   if(_scanResult)return;
   _scanResult=upc;
+  resetResultBar(); // manual-entry panel replaces the result bar's elements
+  // the global on() helper is scoped inside init, so bind buttons locally
+  var on=function(id,evt,fn){var el=document.getElementById(id);if(el)el.addEventListener(evt,fn);};
   sndScan();
   stopScanStream();
   var clean=upc.replace(/\D/g,'');
@@ -5514,6 +5605,7 @@ function onBarcodeDetected(upc){
 }
 
 function stopScanStream(){
+  _stopDecodeLoop();
   if(_zxing){try{_zxing.reset();}catch(e){}_zxing=null;}
   if(_scanInterval){clearInterval(_scanInterval);_scanInterval=null;}
   if(_scanStream){_scanStream.getTracks().forEach(function(t){t.stop();});_scanStream=null;}
