@@ -2964,13 +2964,22 @@ var SUPS=[
 
 function rrod(){
   var con=document.getElementById('rod');
-  var low=D.ammo.filter(function(a){return a.threshold&&parseInt(a.qty)<=parseInt(a.threshold);});
+  // Alert per CALIBER, not per SKU: add up every brand/entry of that caliber and
+  // only warn when the total is at or below the highest alert level set on any of them.
+  var cals={},order=[];
+  D.ammo.forEach(function(a){
+    var key=(a.caliber||'').toUpperCase().replace(/\s+/g,' ').trim();if(!key)return;
+    if(!cals[key]){cals[key]={caliber:a.caliber,total:0,threshold:0,skus:0};order.push(key);}
+    var c=cals[key];c.total+=parseInt(a.qty)||0;c.skus++;
+    var th=parseInt(a.threshold)||0;if(th>c.threshold)c.threshold=th;
+  });
+  var low=order.map(function(k){return cals[k];}).filter(function(c){return c.threshold>0&&c.total<=c.threshold;});
   if(!low.length){con.innerHTML='';return;}
   var html='';
   low.forEach(function(it){
     var links='';
     SUPS.forEach(function(s){links+='<a href="'+s.u(it.caliber||'')+'" target="_blank" class="sl"><div><div class="sln">'+s.n+'</div><div class="slt">'+s.t+'</div></div><div style="color:var(--ac3)">&#8594;</div></a>';});
-    html+='<div class="rp"><div class="rphd"><span style="font-size:16px">&#9888;</span><div style="flex:1;margin-left:9px"><div class="rpa">LOW STOCK ALERT</div><div class="rpn">'+esc(it.brand||'')+' '+esc(it.caliber||'')+' &mdash; '+esc(it.qty)+' ROUNDS LEFT</div></div></div><div class="sls">'+links+'</div></div>';
+    html+='<div class="rp"><div class="rphd"><span style="font-size:16px">&#9888;</span><div style="flex:1;margin-left:9px"><div class="rpa">LOW STOCK ALERT</div><div class="rpn">'+esc((it.caliber||'').toUpperCase())+' &mdash; '+it.total.toLocaleString()+' ROUND'+(it.total===1?'':'S')+' LEFT'+(it.skus>1?' ACROSS '+it.skus+' SKUS':'')+'</div></div></div><div class="sls">'+links+'</div></div>';
   });
   con.innerHTML=html;
 }
